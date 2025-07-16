@@ -1,27 +1,65 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using NLog;
 using NLog.Web;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using System.Diagnostics;
-using System.Diagnostics.Metrics;
 
-// Early init of NLog to allow startup and exception logging, before host is built
+static Action<OpenTelemetry.Exporter.OtlpExporterOptions> ConfigureOtlpExporter(
+    IConfiguration configuration
+)
+{
+    return otlpOptions =>
+    {
+        otlpOptions.Endpoint = new Uri(
+            configuration["SigNoz:Endpoint"]
+                ?? throw new InvalidOperationException("SigNoz:Endpoint configuration is required")
+        );
+        otlpOptions.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
+        var headers = configuration["SigNoz:Headers"];
+        if (!string.IsNullOrEmpty(headers))
+        {
+            otlpOptions.Headers = headers;
+        }
+    };
+}
+
 var logger = LogManager.Setup().LoadConfigurationFromFile("nlog.config").GetCurrentClassLogger();
 
+var tempConfig = new ConfigurationBuilder()
+    .SetBasePath(Directory.GetCurrentDirectory())
+    .AddJsonFile("appsettings.json", optional: false)
+    .Build();
+
+var serviceName =
+    tempConfig["Service:Name"]
+    ?? throw new InvalidOperationException("Service:Name configuration is required");
+var serviceVersion =
+    tempConfig["Service:Version"]
+    ?? throw new InvalidOperationException("Service:Version configuration is required");
+
 // Create activity source for custom tracing
-var activitySource = new ActivitySource("SignozApi");
+var activitySource = new ActivitySource(name: serviceName, version: serviceVersion);
 
 // Create custom metrics
-var meterProvider = new Meter("SignozApi", "1.0.0");
-var requestCounter = meterProvider.CreateCounter<int>("weather_requests", "requests", "Number of weather forecast requests");
-var temperatureHistogram = meterProvider.CreateHistogram<int>("weather_temperature", "celsius", "Temperature values in weather forecasts");
+var meterProvider = new Meter(name: serviceName, version: serviceVersion);
+var requestCounter = meterProvider.CreateCounter<int>(
+    "weather_requests",
+    "requests",
+    "Number of weather forecast requests"
+);
+var temperatureHistogram = meterProvider.CreateHistogram<int>(
+    "weather_temperature",
+    "celsius",
+    "Temperature values in weather forecasts"
+);
 
 try
 {
     logger.Info("Starting up the application");
-    
+
     var builder = WebApplication.CreateBuilder(args);
 
     // Add services to the container.
@@ -30,59 +68,40 @@ try
 
     // NLog: Setup NLog for Dependency injection
     builder.Logging.ClearProviders();
-    builder.Host.UseNLog();
+
+    var loggingOptions = NLogAspNetCoreOptions.Default;
+    loggingOptions.RemoveLoggerFactoryFilter = false;
+    builder.Host.UseNLog(loggingOptions);
 
     // Configure logging to include OpenTelemetry
     builder.Logging.AddOpenTelemetry(options =>
     {
-        options.AddOtlpExporter(otlpOptions =>
-        {
-            otlpOptions.Endpoint = new Uri(builder.Configuration["SigNoz:Endpoint"] ?? throw new InvalidOperationException());
-            otlpOptions.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
-            var headers = builder.Configuration["SigNoz:Headers"];
-            if (!string.IsNullOrEmpty(headers))
-            {
-                otlpOptions.Headers = headers;
-            }
-        });
-        
-        // Include scopes in logs
+        options.AddOtlpExporter(ConfigureOtlpExporter(builder.Configuration));
+
         options.IncludeScopes = true;
         options.IncludeFormattedMessage = true;
     });
 
     // Add OpenTelemetry
-    builder.Services.AddOpenTelemetry()
-        .ConfigureResource(resource => resource
-            .AddService(serviceName: "SignozApi", serviceVersion: "1.0.0"))
-        .WithTracing(tracing => tracing
-            .AddSource(names: "SignozApi")
-            .AddAspNetCoreInstrumentation()
-            .AddHttpClientInstrumentation()
-            .AddOtlpExporter(otlpOptions =>
-            {
-                otlpOptions.Endpoint = new Uri(builder.Configuration["SigNoz:Endpoint"] ?? throw new InvalidOperationException());
-                otlpOptions.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
-                var headers = builder.Configuration["SigNoz:Headers"];
-                if (!string.IsNullOrEmpty(headers))
-                {
-                    otlpOptions.Headers = headers;
-                }
-            }))
-        .WithMetrics(metrics => metrics
-            .AddMeter(names: "SignozApi")
-            .AddAspNetCoreInstrumentation()
-            .AddHttpClientInstrumentation()
-            .AddOtlpExporter(otlpOptions =>
-            {
-                otlpOptions.Endpoint = new Uri(builder.Configuration["SigNoz:Endpoint"] ?? throw new InvalidOperationException());
-                otlpOptions.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
-                var headers = builder.Configuration["SigNoz:Headers"];
-                if (!string.IsNullOrEmpty(headers))
-                {
-                    otlpOptions.Headers = headers;
-                }
-            }));
+    builder
+        .Services.AddOpenTelemetry()
+        .ConfigureResource(resource =>
+            resource.AddService(serviceName: serviceName, serviceVersion: serviceVersion)
+        )
+        .WithTracing(tracing =>
+            tracing
+                .AddSource(names: serviceName)
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddOtlpExporter(ConfigureOtlpExporter(builder.Configuration))
+        )
+        .WithMetrics(metrics =>
+            metrics
+                .AddMeter(names: serviceName)
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddOtlpExporter(ConfigureOtlpExporter(builder.Configuration))
+        );
 
     // Add health checks for metrics endpoint
     builder.Services.AddHealthChecks();
@@ -102,89 +121,106 @@ try
 
     var summaries = new[]
     {
-        "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
+        "Freezing",
+        "Bracing",
+        "Chilly",
+        "Cool",
+        "Mild",
+        "Warm",
+        "Balmy",
+        "Hot",
+        "Sweltering",
+        "Scorching",
     };
 
-    app.MapGet("/weatherforecast", (ILogger<Program> logger) =>
-    {
-        using var activity = activitySource.StartActivity("GenerateWeatherForecast");
-        
-        logger.LogInformation("WeatherForecast endpoint called");
-        
-        // Add custom tags to the activity
-        activity?.SetTag("operation", "weather-forecast");
-        activity?.SetTag("forecast.count", "5");
-        
-        // Increment request counter
-        requestCounter.Add(1);
-        
-        // Create a nested activity for forecast generation
-        using var forecastActivity = activitySource.StartActivity("GenerateForecast");
-        
-        var forecast = Enumerable.Range(1, 5).Select(index =>
-        {
-            var temp = Random.Shared.Next(-20, 55);
-            // Record temperature metric
-            temperatureHistogram.Record(temp);
-            
-            return new WeatherForecast
-            (
-                DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                temp,
-                summaries[Random.Shared.Next(summaries.Length)]
-            );
-        })
-        .ToArray();
-        
-        forecastActivity?.SetTag("forecast.generated", forecast.Length.ToString());
-        forecastActivity?.SetTag("forecast.avg_temp", forecast.Average(f => f.TemperatureC).ToString("F1"));
-            
-        logger.LogInformation("Generated {Count} weather forecasts", forecast.Length);
-        
-        // Add activity event
-        activity?.AddEvent(new("ForecastGenerated", DateTimeOffset.UtcNow, new ActivityTagsCollection
-        {
-            ["forecast.count"] = forecast.Length,
-            ["forecast.avg_temp"] = forecast.Average(f => f.TemperatureC)
-        }));
-        
-        return forecast;
-    })
-    .WithName("GetWeatherForecast");
+    app.MapGet(
+            "/weatherforecast",
+            (ILogger<Program> logger) =>
+            {
+                using var activity = activitySource.StartActivity("GenerateWeatherForecast");
+
+                logger.LogInformation("WeatherForecast endpoint called");
+
+                // Add custom tags to the activity
+                activity?.SetTag("operation", "weather-forecast");
+                activity?.SetTag("forecast.count", "5");
+
+                // Increment some meter
+                requestCounter.Add(1);
+
+                var forecast = Enumerable
+                    .Range(1, 5)
+                    .Select(index =>
+                    {
+                        // Create a nested activity for forecast generation
+                        using var forecastActivity = activitySource.StartActivity(
+                            "GenerateForecast"
+                        );
+
+                        var temp = Random.Shared.Next(-20, 55);
+                        // Record temperature metric
+                        temperatureHistogram.Record(temp);
+
+                        return new WeatherForecast(
+                            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
+                            temp,
+                            summaries[Random.Shared.Next(summaries.Length)]
+                        );
+                    })
+                    .ToArray();
+
+                logger.LogInformation("Generated {Count} weather forecasts", forecast.Length);
+
+                // Add activity event
+                activity?.AddEvent(
+                    new(
+                        "ForecastGenerated",
+                        DateTimeOffset.UtcNow,
+                        new ActivityTagsCollection
+                        {
+                            ["forecast.count"] = forecast.Length,
+                            ["forecast.avg_temp"] = forecast.Average(f => f.TemperatureC),
+                        }
+                    )
+                );
+
+                return forecast;
+            }
+        )
+        .WithName("GetWeatherForecast");
 
     // Add a custom metrics endpoint
-    app.MapGet("/metrics/custom", (ILogger<Program> logger) =>
-    {
-        using var activity = activitySource.StartActivity("CustomMetrics");
-        
-        logger.LogInformation("Custom metrics endpoint called");
-        
-        activity?.SetTag("operation", "custom-metrics");
-        
-        return new
-        {
-            timestamp = DateTime.UtcNow,
-            uptime = DateTime.UtcNow.Subtract(Process.GetCurrentProcess().StartTime),
-            memory = GC.GetTotalMemory(false),
-            gen0Collections = GC.CollectionCount(0),
-            gen1Collections = GC.CollectionCount(1),
-            gen2Collections = GC.CollectionCount(2)
-        };
-    })
-    .WithName("GetCustomMetrics");
+    app.MapGet(
+            "/metrics/custom",
+            (ILogger<Program> logger) =>
+            {
+                using var activity = activitySource.StartActivity("CustomMetrics");
+
+                logger.LogInformation("Custom metrics endpoint called");
+
+                return new
+                {
+                    timestamp = DateTime.UtcNow,
+                    uptime = DateTime.UtcNow.Subtract(Process.GetCurrentProcess().StartTime),
+                    memory = GC.GetTotalMemory(false),
+                    gen0Collections = GC.CollectionCount(0),
+                    gen1Collections = GC.CollectionCount(1),
+                    gen2Collections = GC.CollectionCount(2),
+                };
+            }
+        )
+        .WithName("GetCustomMetrics");
 
     logger.Info("Application configured, starting web host");
     app.Run();
 }
 catch (Exception exception)
 {
-    // NLog: catch setup errors
     logger.Error(exception, "Stopped program because of exception");
     throw;
 }
 finally
 {
-    // Ensure to flush and stop internal timers/threads before application-exit (Avoid segmentation fault on Linux)
     LogManager.Shutdown();
 }
 
