@@ -1,0 +1,29 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-signoz",
+			"type": "shell",
+			"command": "dotnet build ./signoz/signoz.api/signoz.api.csproj",
+			"group": "build",
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"options": {
+                "cwd": "${workspaceFolder}"
+            }
+		},
+		{
+			"label": "start-signoz",
+			"type": "shell",
+			"command": "dotnet run --project ./signoz/signoz.api/signoz.api.csproj",
+			"group": "none",
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"options": {
+                "cwd": "${workspaceFolder}"
+            }
+		}
+	]
+}
