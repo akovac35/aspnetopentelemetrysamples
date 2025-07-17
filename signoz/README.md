@@ -1,6 +1,6 @@
 # SigNoz Sample Application
 
-This sample application can be used to demonstrate sending Open Telemetry data to SigNoz.
+This sample application can be used to demonstrate sending OpenTelemetry data to SigNoz.
 
 ## Getting Started
 
