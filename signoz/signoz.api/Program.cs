@@ -41,16 +41,16 @@ var serviceVersion =
     ?? throw new InvalidOperationException("Service:Version configuration is required");
 
 // Create activity source for custom tracing
-var activitySource = new ActivitySource(name: serviceName, version: serviceVersion);
+using var activitySource = new ActivitySource(name: serviceName, version: serviceVersion);
 
 // Create custom metrics
-var meterProvider = new Meter(name: serviceName, version: serviceVersion);
-var requestCounter = meterProvider.CreateCounter<int>(
+using var meter = new Meter(name: serviceName, version: serviceVersion);
+var requestCounter = meter.CreateCounter<int>(
     "weather_requests",
     "requests",
     "Number of weather forecast requests"
 );
-var temperatureHistogram = meterProvider.CreateHistogram<int>(
+var temperatureHistogram = meter.CreateHistogram<int>(
     "weather_temperature",
     "celsius",
     "Temperature values in weather forecasts"
@@ -61,10 +61,6 @@ try
     logger.Info("Starting up the application");
 
     var builder = WebApplication.CreateBuilder(args);
-
-    // Add services to the container.
-    // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-    builder.Services.AddOpenApi();
 
     // NLog: Setup NLog for Dependency injection
     builder.Logging.ClearProviders();
@@ -90,16 +86,17 @@ try
         )
         .WithTracing(tracing =>
             tracing
-                .AddSource(names: serviceName)
+                .AddSource(names: activitySource.Name)
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddOtlpExporter(ConfigureOtlpExporter(builder.Configuration))
         )
         .WithMetrics(metrics =>
             metrics
-                .AddMeter(names: serviceName)
+                .AddMeter(names: meter.Name)
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
+                .AddRuntimeInstrumentation()
                 .AddOtlpExporter(ConfigureOtlpExporter(builder.Configuration))
         );
 
@@ -108,16 +105,29 @@ try
 
     var app = builder.Build();
 
-    // Configure the HTTP request pipeline.
-    if (app.Environment.IsDevelopment())
-    {
-        app.MapOpenApi();
-    }
-
     app.UseHttpsRedirection();
 
     // Add health check endpoint
     app.MapHealthChecks("/health");
+
+    // Add simple metrics endpoint for health monitoring
+    app.MapGet(
+        "/metrics",
+        () =>
+        {
+            var metrics = new List<string>
+            {
+                "# HELP app_health Application health status",
+                "# TYPE app_health gauge",
+                "app_health{service=\"signoz-api\"} 1",
+                "# HELP app_uptime_seconds Application uptime in seconds",
+                "# TYPE app_uptime_seconds counter",
+                $"app_uptime_seconds{{service=\"signoz-api\"}} {Environment.TickCount64 / 1000}",
+            };
+
+            return Results.Text(string.Join("\n", metrics), "text/plain");
+        }
+    );
 
     var summaries = new[]
     {
@@ -142,8 +152,8 @@ try
                 logger.LogInformation("WeatherForecast endpoint called");
 
                 // Add custom tags to the activity
-                activity?.SetTag("operation", "weather-forecast");
-                activity?.SetTag("forecast.count", "5");
+                activity?.SetTag("app.operation", "weather-forecast");
+                activity?.SetTag("app.forecast.count", "5");
 
                 // Increment some meter
                 requestCounter.Add(1);
@@ -188,28 +198,6 @@ try
             }
         )
         .WithName("GetWeatherForecast");
-
-    // Add a custom metrics endpoint
-    app.MapGet(
-            "/metrics/custom",
-            (ILogger<Program> logger) =>
-            {
-                using var activity = activitySource.StartActivity("CustomMetrics");
-
-                logger.LogInformation("Custom metrics endpoint called");
-
-                return new
-                {
-                    timestamp = DateTime.UtcNow,
-                    uptime = DateTime.UtcNow.Subtract(Process.GetCurrentProcess().StartTime),
-                    memory = GC.GetTotalMemory(false),
-                    gen0Collections = GC.CollectionCount(0),
-                    gen1Collections = GC.CollectionCount(1),
-                    gen2Collections = GC.CollectionCount(2),
-                };
-            }
-        )
-        .WithName("GetCustomMetrics");
 
     logger.Info("Application configured, starting web host");
     app.Run();

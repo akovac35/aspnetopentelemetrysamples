@@ -1,6 +1,16 @@
-@signoz_api_HostAddress = http://localhost:5000
+    @signoz_api_HostAddressHttps = https://localhost:5001
 
-GET {{signoz_api_HostAddress}}/weatherforecast/
+GET {{signoz_api_HostAddressHttps}}/weatherforecast/
 Accept: application/json
+
+###
+
+GET {{signoz_api_HostAddressHttps}}/health
+Accept: application/json
+
+###
+
+GET {{signoz_api_HostAddressHttps}}/metrics
+Accept: text/plain
 
 ###
