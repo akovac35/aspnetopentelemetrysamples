@@ -2,6 +2,8 @@
 
 This sample application can be used to demonstrate sending OpenTelemetry data to SigNoz.
 
+Data includes http traces, metrics, logs. The metrics include health check metrics that are sent using the OpenTelemetry Collector's HTTP Check receiver.
+
 ## Getting Started
 
 Install SigNoz using Docker by following the instructions on the SigNoz documentation site:
@@ -56,6 +58,10 @@ service:
       processors: [...]
       exporters: [..., debug]
 ```
+
+Notes:
+
+Degraded status can be signalled with 2xx HTTP status codes, while unhealthy status can be signalled with 5xx HTTP status codes.
 
 ## References
 
