@@ -10,6 +10,8 @@ Install SigNoz using Docker by following the instructions on the SigNoz document
 
 - https://signoz.io/docs/install/docker/
 
+Modify the `docker-compose.yaml` file to use the community SigNoz image: `signoz/signoz-community`
+
 Verify application's `appsettings.json` and `nlog.config` files are configured correctly for your environment.
 
 The application can be started with the following VS Code task: `start-signoz`
@@ -58,6 +60,16 @@ service:
       processors: [...]
       exporters: [..., debug]
 ```
+
+Compare reference files:
+
+* https://github.com/SigNoz/signoz/blob/v0.90.1/deploy/docker/docker-compose.yaml
+* https://github.com/SigNoz/signoz/blob/v0.90.1/deploy/docker/otel-collector-config.yaml
+
+with the ones in this sample:
+
+* [sample_docker-compose.yaml](/signoz/sample_docker-compose.yaml)
+* [sample_otel-collector-config.yaml](/signoz/sample_otel-collector-config.yaml)
 
 Notes:
 
