@@ -110,25 +110,6 @@ try
     // Add health check endpoint
     app.MapHealthChecks("/health");
 
-    // Add simple metrics endpoint for health monitoring
-    app.MapGet(
-        "/metrics",
-        () =>
-        {
-            var metrics = new List<string>
-            {
-                "# HELP app_health Application health status",
-                "# TYPE app_health gauge",
-                "app_health{service=\"signoz-api\"} 1",
-                "# HELP app_uptime_seconds Application uptime in seconds",
-                "# TYPE app_uptime_seconds counter",
-                $"app_uptime_seconds{{service=\"signoz-api\"}} {Environment.TickCount64 / 1000}",
-            };
-
-            return Results.Text(string.Join("\n", metrics), "text/plain");
-        }
-    );
-
     var summaries = new[]
     {
         "Freezing",

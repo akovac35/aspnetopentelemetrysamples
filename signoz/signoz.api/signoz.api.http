@@ -8,9 +8,3 @@ Accept: application/json
 GET {{signoz_api_HostAddressHttps}}/health
 Accept: application/json
 
-###
-
-GET {{signoz_api_HostAddressHttps}}/metrics
-Accept: text/plain
-
-###

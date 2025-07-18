@@ -48,12 +48,12 @@ Add the httpcheck receiver to your metrics pipeline:
 ```yaml
 exporters:
   debug:
-    verbosity: detailed
+    verbosity: basic
 service:
   pipelines:
     metrics:
       receivers: [..., httpcheck]
-      processors: [batch]
+      processors: [...]
       exporters: [..., debug]
 ```
 
