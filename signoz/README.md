@@ -10,15 +10,15 @@ Install SigNoz using Docker by following the instructions on the SigNoz document
 
 - https://signoz.io/docs/install/docker/
 
-Modify the `docker-compose.yaml` file to use the community SigNoz image: `signoz/signoz-community`
+Modify the `docker-compose.yaml` file to use the community SigNoz image `signoz/signoz-community`. This sample contains the complete `docker-compose.yaml` file.
 
-Verify application's `appsettings.json` and `nlog.config` files are configured correctly for your environment.
+Verify application's `appsettings.json` and `nlog.config` files are configured correctly for your environment. This sample contains relevant files.
 
 The application can be started with the following VS Code task: `start-signoz`
 
 Trigger some requests to the application to generate traces, metrics and logs. This can be done with the `REST Client` VS Code extension, check the signoz.api.http file for example requests.
 
-## OpenTelemetry Collector Configuration
+## OpenTelemetry Collector Configuration Notes
 
 Some additional configuration is required to send health check metrics to SigNoz. This involves setting up the OpenTelemetry Collector with the HTTP Check receiver. The HTTP Check receiver performs synthetic monitoring by making HTTP requests to configured endpoints and generating metrics about their availability and performance.
 
@@ -71,7 +71,7 @@ with the ones in this sample:
 * [sample_docker-compose.yaml](/signoz/sample_docker-compose.yaml)
 * [sample_otel-collector-config.yaml](/signoz/sample_otel-collector-config.yaml)
 
-Notes:
+Other:
 
 Degraded status can be signalled with 2xx HTTP status codes, while unhealthy status can be signalled with 5xx HTTP status codes.
 
